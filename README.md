@@ -277,7 +277,20 @@ DOCKER_REGISTRY=docker.1ms.run
 PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-前者只替换基础镜像的来源（镜像站提供的是与 Docker Hub 完全相同的 digest），后者只影响容器内 `pip install` 的 index。删掉这两行就回到官方源，默认行为不变。镜像站这两年关停了很多，上面这家不通就换 `docker.m.daocloud.io`、`docker.xuanyuan.me`；也可以用 `/etc/docker/daemon.json` 的 `registry-mirrors` 做全局加速（改动影响整台机器，需要 `systemctl restart docker`）。
+前者只替换基础镜像的来源（镜像站提供的是与 Docker Hub 完全相同的 digest），后者只影响容器内 `pip install` 的 index。删掉这两行就回到官方源，默认行为不变。
+
+镜像站这两年关停了一大批，而且各家状态随时在变，**换之前先花 10 秒筛一遍**，别拿 `docker compose build` 当试错工具：
+
+```bash
+for m in docker.1ms.run docker.m.daocloud.io docker.1panel.live dockerpull.org; do
+  printf '%-26s ' "$m"
+  curl -s -o /dev/null -w '%{http_code}\n' --max-time 8 \
+    -H 'Accept: application/vnd.oci.image.index.v1+json' \
+    "https://$m/v2/library/python/manifests/3.12-slim"
+done
+```
+
+`200` 和 `401` 都能用——`401` 是 Docker registry 的匿名挑战，客户端会自动拿 token 重试；`403`（直接拒绝，例如 `docker.xuanyuan.me` 已关闭匿名拉取）和超时/DNS 污染（例如 `157.240.x.x`）直接用不了。想全局加速也可以配 `/etc/docker/daemon.json` 的 `registry-mirrors`（改动影响整台机器，需要 `systemctl restart docker`，且注意那里的地址**必须带 `https://`**）。
 
 ⚠️ `DOCKER_REGISTRY` **只写域名，不要带 `https://`**，否则构建报 `failed to parse stage name "https://…": invalid reference format`——`https://` 是 `daemon.json` 里 `registry-mirrors` 的写法，`FROM` 和 `docker pull` 都不接受协议头。改完可以先 `docker pull docker.xuanyuan.me/library/python:3.12-slim` 单测镜像通不通，比等整个 build 快。
 
