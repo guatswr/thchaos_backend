@@ -112,7 +112,7 @@ docker compose version              # 需要 v2，输出形如 Docker Compose ve
 
 ```bash
 sudo mkdir -p /opt && cd /opt
-sudo git clone <仓库地址> thchaos_backend
+sudo git clone https://github.com/guatswr/thchaos_backend.git
 cd thchaos_backend
 ```
 
