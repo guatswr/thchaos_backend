@@ -5,31 +5,16 @@ services:
     env_file: .env
     volumes:
       - thchaos-data:/var/lib/thchaos
-    expose:
-      - "8765"
+    # 宿主机 9961 → 容器 8765。客户端用裸 IP 直连这个端口
+    # （ws://<服务器IP>:9961/ws/game 与 /ws/bot），中间没有 TLS 终结层，
+    # 因此务必把端口来源限制在已知 IP 上，见 README「安全清单」。
+    ports:
+      - "9961:8765"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/healthz', timeout=2)"]
       interval: 15s
       timeout: 3s
       retries: 3
 
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    depends_on:
-      backend:
-        condition: service_healthy
-    ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      THCHAOS_DOMAIN: ${THCHAOS_DOMAIN}
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-
 volumes:
   thchaos-data:
-  caddy-data:
-  caddy-config:
