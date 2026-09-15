@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 本地配置与凭据：绝对不要提交真实 Token、QQ 号、服务器地址或房间号。
+.env
+.env.*
+*.local.toml
+*.local.json
+secrets/
+config.local.*
+# 本阶段不产生任何运行时数据；以下是后续阶段可能用到的本地产物。
+*.sqlite3
+*.db
+logs/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini

@@ -1,0 +1,5 @@
+name: astrbot_plugin_thchaos
+display_name: THChaos 观众投票
+desc: 将 THChaos 游戏投票同步到 QQ 群，并把群友的 1/2/3 投票转发给游戏端。
+version: 0.1.0
+author: THChaos

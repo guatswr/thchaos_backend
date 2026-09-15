@@ -1,0 +1,46 @@
+{
+  "backend_url": {
+    "type": "string",
+    "description": "后端 Bot WebSocket 地址，例如 wss://vote.example.com/ws/bot",
+    "default": "ws://127.0.0.1:8765/ws/bot"
+  },
+  "token": {
+    "type": "string",
+    "description": "后端 Bot Token；生产环境必须修改",
+    "default": "",
+    "secret": true
+  },
+  "room_id": {
+    "type": "string",
+    "description": "后端房间 ID",
+    "default": "main"
+  },
+  "group_ids": {
+    "type": "list",
+    "items": {"type": "string"},
+    "description": "允许参与投票的 QQ 群号字符串列表",
+    "default": []
+  },
+  "group_umos": {
+    "type": "dict",
+    "items": {},
+    "description": "可选：群号到 AstrBot unified_msg_origin 的映射",
+    "default": {}
+  },
+  "voter_hmac_secret": {
+    "type": "string",
+    "description": "用于生成不可逆 voter_id 的密钥",
+    "default": "",
+    "secret": true
+  },
+  "snapshot_interval_seconds": {
+    "type": "float",
+    "description": "QQ群票况合并播报间隔；内部转发仍是实时的",
+    "default": 2
+  },
+  "announce_vote_ack": {
+    "type": "boolean",
+    "description": "是否在群里回复每次已计票/拒绝；大群建议关闭",
+    "default": false
+  }
+}

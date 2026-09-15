@@ -1,0 +1,4 @@
+{$THCHAOS_DOMAIN} {
+    encode gzip
+    reverse_proxy backend:8765
+}
