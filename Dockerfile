@@ -1,5 +1,5 @@
 # 默认走 Docker Hub；国内服务器拉不到镜像时，在 .env 里加
-# DOCKER_REGISTRY=docker.1ms.run 由 compose 传进来即可（见 README 故障排查）。
+# DOCKER_REGISTRY=docker.1panel.live 由 compose 传进来即可（见 README 附录 D）。
 # 只写域名，不要带 https://（那是 daemon.json 的 registry-mirrors 的写法，
 # 写进 FROM 会报 invalid reference format）。
 # 注意带域名时官方镜像必须补全 library/ 命名空间。

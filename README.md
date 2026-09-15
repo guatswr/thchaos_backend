@@ -270,29 +270,7 @@ docker compose down -v           # 危险：连审计库一起删除（投票记
 
 ## 故障排查
 
-**`docker compose up -d --build` 卡在 `registry-1.docker.io` 或 `pypi.org` 超时。** 国内服务器常见，报错形如 `dial tcp 157.240.3.8:443: i/o timeout`（`157.240.x.x` 是 Facebook 的地址段，说明 DNS 被污染，正常应解析到 AWS）。在 `.env` 里加两行切到国内镜像站，`docker compose up -d --build` 会自动带上：
-
-```dotenv
-DOCKER_REGISTRY=docker.1ms.run
-PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-```
-
-前者只替换基础镜像的来源（镜像站提供的是与 Docker Hub 完全相同的 digest），后者只影响容器内 `pip install` 的 index。删掉这两行就回到官方源，默认行为不变。
-
-镜像站这两年关停了一大批，而且各家状态随时在变，**换之前先花 10 秒筛一遍**，别拿 `docker compose build` 当试错工具：
-
-```bash
-for m in docker.1ms.run docker.m.daocloud.io docker.1panel.live dockerpull.org; do
-  printf '%-26s ' "$m"
-  curl -s -o /dev/null -w '%{http_code}\n' --max-time 8 \
-    -H 'Accept: application/vnd.oci.image.index.v1+json' \
-    "https://$m/v2/library/python/manifests/3.12-slim"
-done
-```
-
-`200` 和 `401` 都能用——`401` 是 Docker registry 的匿名挑战，客户端会自动拿 token 重试；`403`（直接拒绝，例如 `docker.xuanyuan.me` 已关闭匿名拉取）和超时/DNS 污染（例如 `157.240.x.x`）直接用不了。想全局加速也可以配 `/etc/docker/daemon.json` 的 `registry-mirrors`（改动影响整台机器，需要 `systemctl restart docker`，且注意那里的地址**必须带 `https://`**）。
-
-⚠️ `DOCKER_REGISTRY` **只写域名，不要带 `https://`**，否则构建报 `failed to parse stage name "https://…": invalid reference format`——`https://` 是 `daemon.json` 里 `registry-mirrors` 的写法，`FROM` 和 `docker pull` 都不接受协议头。改完可以先 `docker pull docker.xuanyuan.me/library/python:3.12-slim` 单测镜像通不通，比等整个 build 快。
+**`docker compose up -d --build` 卡在 `registry-1.docker.io` 或 `pypi.org`。** 国内服务器上的常见问题，含镜像站选择、403/401 的区分和离线搬运的退路，见[附录 D](#附录-d中国大陆服务器的拉取与构建实测)。
 
 **外部连不上 9961。** 先在服务器本机确认服务本身是好的：`curl -s http://127.0.0.1:9961/healthz`。本机通、外面不通，通常是云安全组没放行、`ufw` 没放行，或者 `docker compose ps` 里 backend 不是 healthy（`docker compose logs backend` 看报错）。确认端口确实在监听：`sudo ss -lntp | grep :9961`。
 
@@ -468,6 +446,83 @@ AstrBot 的 `backend_url` 同步改成 `wss://vote.example.com/ws/bot`。改完�
 ```
 
 对应 `wss://vote.example.com:9961/ws/game`。
+
+## 附录 D：中国大陆服务器的拉取与构建（实测）
+
+裸 IP 部署与网络位置无关，**只有构建这一步有国内特有的坑**。本节是 2026-09 在一台国内 Ubuntu 服务器上实际踩出来的记录。
+
+### D.1 先分清是哪一种失败
+
+`docker compose up -d --build` 报错时先看最后那几个字：
+
+| 报错 | 含义 | 怎么办 |
+|---|---|---|
+| `dial tcp 157.240.3.8:443: i/o timeout` | DNS 被污染。`157.240.x.x` 是 Facebook 的地址段，`registry-1.docker.io` 正常应解析到 AWS | 换镜像站（D.2） |
+| `unexpected status from HEAD request …: 403 Forbidden` | 镜像站在拒绝你：匿名拉取已关闭，或按 IP 段限制 | 换镜像站，换网络没用 |
+| `… : 401` 且带 `WWW-Authenticate: Bearer …` | **正常**。这是 registry 的匿名挑战，Docker 客户端会自动去换 token 重试 | 不用管 |
+
+403 和 401 只差一个数字、含义完全相反，卡住时先确认是哪个再动手。
+
+### D.2 处理：在 `.env` 里加两行
+
+```dotenv
+DOCKER_REGISTRY=docker.1panel.live
+PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+第一行换基础镜像的来源，第二行换容器内 `pip install` 的 index——**Docker Hub 和 PyPI 是两套网络，只改一个还会卡在另一个**。删掉这两行就回到官方源，不带参数构建的行为与从前完全一致。
+
+### D.3 挑镜像站：先花 10 秒筛一遍
+
+镜像站这两年关停了一大批，各家状态随时在变，别拿 `docker compose build` 当试错工具：
+
+```bash
+for m in docker.1panel.live docker.1ms.run docker.m.daocloud.io dockerpull.org; do
+  printf '%-26s ' "$m"
+  curl -s -o /dev/null -w '%{http_code}\n' --max-time 8 \
+    -H 'Accept: application/vnd.oci.image.index.v1+json' \
+    "https://$m/v2/library/python/manifests/3.12-slim"
+done
+```
+
+`200` / `401` = 可用，`403` / `000`(超时) = 不可用。2026-09 的实测结果：
+
+| 镜像站 | 状态 |
+|---|---|
+| `docker.1panel.live` | ✅ 服务器实测可用；匿名请求直接返回 `200`，连 token 挑战都没有，最省事 |
+| `docker.1ms.run` | ✅ 可用；拉下来的 digest 与 Docker Hub 官方完全一致 |
+| `docker.xuanyuan.me` | ❌ HEAD/GET 均返回 403，已关闭匿名拉取 |
+
+curl 探测只能判断"这个站活不活"，最终仍以 `docker pull <镜像站>/library/python:3.12-slim` 为准——它同时也验证了 `library/` 命名空间写对了。
+
+### D.4 全都不通时的退路：本机构建好再搬进去
+
+只要本机（比如这台 Windows）能正常构建，就能完全绕开服务器上的外网问题：
+
+```powershell
+# 本机：构建 → 导出
+docker build -t thchaos-backend:cn .
+docker save thchaos-backend:cn | gzip > thchaos-backend.tar.gz
+scp thchaos-backend.tar.gz root@<服务器IP>:/root/
+```
+
+```bash
+# 服务器：导入 → 直接跑，不再构建
+docker load -i /root/thchaos-backend.tar.gz
+cd ~/workspace/thchaos_backend
+docker compose up -d --no-build
+```
+
+- **`--no-build` 必须加**，否则 compose 会无视刚导入的镜像重新去构建
+- 本机与服务器的 CPU 架构必须一致：`uname -m` 输出 `x86_64` 时本机导出的镜像才能直接用；服务器是 arm64 就得在本机 `docker buildx build --platform linux/arm64`
+- 每次改代码都要重走一遍，所以这是应急手段，不是长期方案
+
+### D.5 几个必踩的坑
+
+- **`DOCKER_REGISTRY` 只写域名，不要带 `https://`**，否则报 `failed to parse stage name "https://…": invalid reference format`。带 `https://` 的是 `/etc/docker/daemon.json` 里的 `registry-mirrors`，两者的写法正好相反，很容易记串
+- 换镜像站后先 `docker pull` 单测，别直接 `docker compose build`
+- 想全局加速可以在 `/etc/docker/daemon.json` 配 `registry-mirrors`，改动影响整台机器且要 `systemctl restart docker`；但对已经 403 的镜像站没有帮助
+- 拉下来的镜像可以和官方比对 digest（`docker images --digests`），一致就说明镜像站没有二次打包
 
 ## 测试
 
