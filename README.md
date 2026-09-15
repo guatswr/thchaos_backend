@@ -207,7 +207,7 @@ AstrBot：插件已独立成仓库 **`astrbot_plugin_thchaos`**（不在本仓�
 
 ```bash
 cd <AstrBot>/data/plugins
-git clone <astrbot_plugin_thchaos 仓库地址> astrbot_plugin_thchaos
+git clone https://github.com/guatswr/astrbot_plugin_thchaos.git astrbot_plugin_thchaos
 ```
 
 | 配置项 | 值 |
