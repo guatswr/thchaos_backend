@@ -20,7 +20,6 @@ QQ 群 ◀── OneBot 反向 WS ── NapCat ◀── AstrBot
 |---|---|
 | `src/thchaos_backend/protocol/` | 信封、载荷、错误码等协议模型；不含任何 IO |
 | `src/thchaos_backend/server/` | `app`（FastAPI 入口）、`hub`（连接与房间协调）、`config`、`storage`（SQLite 审计） |
-| `integrations/astrbot_plugin_thchaos/` | AstrBot 插件，复制到 AstrBot 的 `data/plugins/` 使用 |
 | `tools/` | `sim_game.py`、`sim_bot.py` 本机模拟端 |
 | `deploy/Caddyfile` | 预留：将来接域名 + TLS 时使用的反代配置（见附录 C） |
 | `docs/protocol-v1.md` | 协议规范 |
@@ -204,16 +203,23 @@ cd /opt/thchaos_backend
 }
 ```
 
-AstrBot：把 `integrations/astrbot_plugin_thchaos/` 整个目录复制到 AstrBot 的 `data/plugins/`，然后在配置里填：
+AstrBot：插件已独立成仓库 **`astrbot_plugin_thchaos`**（不在本仓库里），克隆到 AstrBot 的 `data/plugins/` 后按下表配置：
+
+```bash
+cd <AstrBot>/data/plugins
+git clone <astrbot_plugin_thchaos 仓库地址> astrbot_plugin_thchaos
+```
 
 | 配置项 | 值 |
 |---|---|
 | `backend_url` | `ws://<服务器IP>:9961/ws/bot` |
 | `token` | Bot Token（**不能**用游戏 Token） |
 | `room_id` | `main`，与 Token 映射的房间一致 |
-| `group_ids` | 允许投票的 QQ 群号白名单，其他群一律忽略 |
+| `group_ids` | **参与投票的 QQ 群号白名单**，只有这里列出的群会被转发投票，其他群一律忽略 |
 | `voter_hmac_secret` | 另一串随机值，用于生成不可逆的 `voter_id` |
 | `snapshot_interval_seconds` | 群内票况合并播报间隔，默认 2 秒（内部转发仍是实时的） |
+
+群号怎么填、多个群如何合并计票、日志怎么查群号，见该插件仓库的 README。
 
 NapCat 不需要连接本后端：按 AstrBot 的 OneBot 适配器配置 NapCat 作为客户端连接 AstrBot（建议反向 WS），后端只会看到 Bot Token 和 HMAC 伪名，不接触 QQ 原始账号。
 
