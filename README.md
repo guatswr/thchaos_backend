@@ -270,6 +270,15 @@ docker compose down -v           # 危险：连审计库一起删除（投票记
 
 ## 故障排查
 
+**`docker compose up -d --build` 卡在 `registry-1.docker.io` 或 `pypi.org` 超时。** 国内服务器常见，报错形如 `dial tcp 157.240.3.8:443: i/o timeout`（`157.240.x.x` 是 Facebook 的地址段，说明 DNS 被污染，正常应解析到 AWS）。在 `.env` 里加两行切到国内镜像站，`docker compose up -d --build` 会自动带上：
+
+```dotenv
+DOCKER_REGISTRY=docker.1ms.run
+PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+前者只替换基础镜像的来源（镜像站提供的是与 Docker Hub 完全相同的 digest），后者只影响容器内 `pip install` 的 index。删掉这两行就回到官方源，默认行为不变。镜像站这两年关停了很多，上面这家不通就换 `docker.m.daocloud.io`、`docker.xuanyuan.me`；也可以用 `/etc/docker/daemon.json` 的 `registry-mirrors` 做全局加速（改动影响整台机器，需要 `systemctl restart docker`）。
+
 **外部连不上 9961。** 先在服务器本机确认服务本身是好的：`curl -s http://127.0.0.1:9961/healthz`。本机通、外面不通，通常是云安全组没放行、`ufw` 没放行，或者 `docker compose ps` 里 backend 不是 healthy（`docker compose logs backend` 看报错）。确认端口确实在监听：`sudo ss -lntp | grep :9961`。
 
 **客户端连不上。** `docker compose logs backend` 看不到任何 `hello` 就是链路没到服务器（安全组/防火墙）；看到了 `auth.invalid_token` 说明 Token 抄错了；看到 `protocol.origin_mismatch` 说明客户端 `room_id` 与 Token 映射的房间不一致。确认客户端用的是 `ws://<服务器IP>:9961/...`——本方案没有 TLS，写成 `wss://` 会直接连不上。

@@ -15,6 +15,7 @@ htmlcov/
 # 本地配置与凭据：绝对不要提交真实 Token、QQ 号、服务器地址或房间号。
 .env
 .env.*
+!.env.example
 *.local.toml
 *.local.json
 secrets/

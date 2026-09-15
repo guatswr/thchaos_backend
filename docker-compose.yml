@@ -1,6 +1,12 @@
 services:
   backend:
-    build: .
+    # 默认与以前完全一致；国内服务器在 .env 里设 DOCKER_REGISTRY / PIP_INDEX_URL
+    # 即可把基础镜像和 pip 源切到国内镜像站（见 README 故障排查）。
+    build:
+      context: .
+      args:
+        DOCKER_REGISTRY: ${DOCKER_REGISTRY:-docker.io}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-}
     restart: unless-stopped
     env_file: .env
     volumes:
