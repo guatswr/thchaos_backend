@@ -41,6 +41,26 @@ Bot 只能发送 `vote.cast` 和 `heartbeat.ping`，游戏端消息只能由游�
 
 游戏端断线时房间标记离线并广播 `game.offline`；游戏端重连后必须发送 `game.sync` 全量快照，服务器不会重放断线期间的旧投票。
 
+## 可靠性与性能边界
+
+- **单进程部署**：使用仓库的 `python -m thchaos_backend.server` 入口，固定一个 worker。房间状态、连接和消息缓存属于当前进程，不能直接增加 uvicorn workers 或部署多个随机分流的副本。SQLite 共享文件不会共享 WebSocket；扩容需要另外设计房间分片或跨进程路由。
+- **投票一致性**：先用 SQLite 唯一约束持久化 `cast_id` 和 `(room_id, game_instance_id, round_id, voter_id)` 去重，再检查连接与轮次是否变化，最后入发送队列。切轮、同步或断线会取消尚未发送的旧票；已经开始网络发送的投票可能已被游戏接收，服务器不会自动重试。
+- **ACK 与未知结果**：默认 15 秒未收到 ACK，会返回 `round.result_unknown`，携带 `cast_id`，且 `retryable=false`。它不表示游戏没有计票。以游戏快照为准，不要自动换一个 `cast_id` 重投；迟到 ACK 仍可修正审计状态。此超时仅结束等待 ACK，不使用服务器时间关闭投票轮次。
+- **有界发送队列**：每连接默认最多等待 128 条消息，独立发送任务维护连续序号。单次发送超过 2 秒或队列满即断开该慢连接；其他连接继续处理。关键消息不会静默丢弃，当前实现不合并快照。断线后客户端应重连获取全量快照。
+- **异步审计**：普通事件和投票状态更新进入默认容量 4096 的队列，每批最多 100 条、合并窗口 10 毫秒；心跳及被限流的投票不写事件表。队列满或批量写盘失败会丢弃对应审计记录并计数，业务状态继续处理。投票去重事务仍需等待数据库成功；数据库不可写时不会绕过去重转发。进程崩溃可能丢失尚未提交的审计队列，正常退出会排空队列并关闭数据库。
+- **消息幂等范围**：每房间保留最近 4096 条成功处理的非心跳消息摘要，同实例、同角色的重复 `message_id` 不重复执行业务；复用 ID 却修改内容会被拒绝。重复投票返回 `round.duplicate_vote`。该缓存不跨服务重启，超出窗口也不保证消息级去重；投票唯一约束持续保存在 SQLite 中。游戏重连的首个 `game.sync` 即使复用同内容 ID 也会重新建立状态。重连建议始终生成新的消息 ID。
+- **身份与凭据**：握手校验 Token、角色对应路径、信封和载荷中的房间/实例；后续消息继续校验连接身份。审计不保存 `hello.token`，错误响应不回显原始输入。启动会移除现有审计记录中的该字段，但不保证旧磁盘页、WAL 或备份副本的物理擦除。升级旧版本后应轮换曾使用的 Token，并按自己的备份策略处理旧副本。
+
+审计状态依次可能为 `reserved`（去重事务已提交）、`forwarded`（网络发送完成）、`accepted` / `rejected:<reason>`（游戏确认）；中途终止记录为 `not_sent:<reason>` 或 `unknown:<reason>`。服务重启会把遗留 `reserved` / `forwarded` 保守标为 `unknown:restart`，不会重放。这些状态属于尽力审计，不代替游戏权威票数。
+
+`/healthz` 仅检查进程存活。配置管理 Token 后可访问 `GET /metrics`（同样需要 `X-Admin-Token`）：
+
+```bash
+curl -H 'X-Admin-Token: <管理Token>' http://127.0.0.1:9961/metrics
+```
+
+指标包含最近最多 1024 次样本的投票转发与 ACK 等待 P95/P99（毫秒）、待确认数、ACK 超时数、审计丢弃数和写入失败数。转发延迟从通过初步投票校验到网络发送完成，ACK 延迟从同一时点到收到游戏确认；不包含客户端到服务端的网络耗时，也不代表端到端压测结果。指标在进程重启后清零，管理员查询不存在的房间不会创建房间。
+
 ## 环境变量
 
 | 变量 | 默认值 | 说明 |
@@ -53,8 +73,16 @@ Bot 只能发送 `vote.cast` 和 `heartbeat.ping`，游戏端消息只能由游�
 | `THCHAOS_ALLOW_DEV_TOKENS` | `0` | 设为 `1` 才启用内置开发 Token（仅本地模拟） |
 | `THCHAOS_ADMIN_TOKEN` | 空 | 为空则不提供 `/rooms/{room_id}/state` 排障接口 |
 | `THCHAOS_MAX_CASTS_PER_SECOND` | `30` | 每条 Bot 连接每秒 `vote.cast` 上限 |
+| `THCHAOS_MAX_FRAME_BYTES` | `16384` | 解析层与标准启动入口的 WebSocket 帧大小上限 |
+| `THCHAOS_HANDSHAKE_TIMEOUT` | `5` | 等待首帧 `hello` 的超时秒数 |
+| `THCHAOS_SEND_TIMEOUT` | `2` | 单次网络发送的超时秒数 |
+| `THCHAOS_ACK_TIMEOUT` | `15` | 从投票校验通过起等待 ACK 的超时秒数，包含去重和排队时间 |
+| `THCHAOS_OUTBOUND_QUEUE_SIZE` | `128` | 每连接等待发送的消息数上限 |
+| `THCHAOS_AUDIT_QUEUE_SIZE` | `4096` | 等待批量写入的审计事件/状态记录数上限 |
 
 Token 长度 1..256 字符，同一房间可以配置多个 Token。生产环境两组 Token 必须不同，且绝不能把游戏 Token 交给 Bot 端。
+
+无效配置（负数/零容量、无效超时或端口、不合法房间名、两角色共用 Token）会在启动时报错。帧超限可能先被 WebSocket 传输层以 1009 关闭；进入应用解析层的超限帧返回 `protocol.message_too_large`。
 
 ## 本地开发
 
@@ -536,6 +564,8 @@ docker compose up -d --no-build
 .venv/bin/pytest -q        # Linux
 .\.venv\Scripts\pytest.exe -q   # Windows
 ```
+
+测试包含真实 WebSocket 投票闭环，以及数据库等待期间切轮/断线/同步、发送队列过期取消、慢连接隔离与超时、ACK 超时和迟到确认、消息幂等、握手与房间鉴权、Token 脱敏迁移、审计故障和正常退出排空。网络测试使用动态端口，并对本机连接禁用代理。
 
 ## 许可证
 

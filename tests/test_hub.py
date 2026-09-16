@@ -1,5 +1,6 @@
 import asyncio
 import json
+import socket
 from pathlib import Path
 
 import pytest
@@ -80,10 +81,14 @@ async def recv_type(ws, expected: str) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_game_bot_round_flow(tmp_path: Path):
+async def test_game_bot_round_flow(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+    monkeypatch.setenv("no_proxy", "127.0.0.1,localhost")
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
     settings = Settings(
         host="127.0.0.1",
-        port=18765,
+        port=listener.getsockname()[1],
         database_path=tmp_path / "audit.sqlite3",
         game_tokens={"game-token": ROOM},
         bot_tokens={"bot-token": ROOM},
@@ -91,7 +96,7 @@ async def test_game_bot_round_flow(tmp_path: Path):
     )
     config = uvicorn.Config(create_app(settings), host=settings.host, port=settings.port, log_level="error")
     server = uvicorn.Server(config)
-    task = asyncio.create_task(server.serve())
+    task = asyncio.create_task(server.serve(sockets=[listener]))
     try:
         for _ in range(50):
             if server.started:
@@ -192,3 +197,4 @@ async def test_game_bot_round_flow(tmp_path: Path):
     finally:
         server.should_exit = True
         await asyncio.wait_for(task, timeout=3)
+        listener.close()

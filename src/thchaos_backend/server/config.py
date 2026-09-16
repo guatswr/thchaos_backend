@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import os
+import math
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -44,6 +46,30 @@ class Settings:
     max_bots_per_room: int = 8
     admin_token: str = ""
     max_casts_per_second: int = 30
+    handshake_timeout: float = 5.0
+    send_timeout: float = 2.0
+    ack_timeout: float = 15.0
+    outbound_queue_size: int = 128
+    audit_queue_size: int = 4096
+
+    def __post_init__(self) -> None:
+        for name in ("max_frame_bytes", "max_bots_per_room", "max_casts_per_second",
+                     "outbound_queue_size", "audit_queue_size"):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name} 必须大于 0")
+        for name in ("handshake_timeout", "send_timeout", "ack_timeout"):
+            if not math.isfinite(getattr(self, name)) or getattr(self, name) <= 0:
+                raise ValueError(f"{name} 必须是有限正数")
+        if not 1 <= self.port <= 65535:
+            raise ValueError("port 必须在 1..65535 范围内")
+        if self.game_tokens.keys() & self.bot_tokens.keys():
+            raise ValueError("游戏和 Bot 不能共用 Token")
+        for mapping in (self.game_tokens, self.bot_tokens):
+            for token, room in mapping.items():
+                if not isinstance(token, str) or not 1 <= len(token) <= 256:
+                    raise ValueError("Token 必须是 1..256 字符字符串")
+                if not isinstance(room, str) or re.fullmatch(r"[A-Za-z0-9_-]{1,64}", room) is None:
+                    raise ValueError("room_id 必须符合协议 Identifier 格式")
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -60,6 +86,11 @@ class Settings:
             max_frame_bytes=int(os.getenv("THCHAOS_MAX_FRAME_BYTES", str(16 * 1024))),
             admin_token=os.getenv("THCHAOS_ADMIN_TOKEN", ""),
             max_casts_per_second=int(os.getenv("THCHAOS_MAX_CASTS_PER_SECOND", "30")),
+            handshake_timeout=float(os.getenv("THCHAOS_HANDSHAKE_TIMEOUT", "5")),
+            send_timeout=float(os.getenv("THCHAOS_SEND_TIMEOUT", "2")),
+            ack_timeout=float(os.getenv("THCHAOS_ACK_TIMEOUT", "15")),
+            outbound_queue_size=int(os.getenv("THCHAOS_OUTBOUND_QUEUE_SIZE", "128")),
+            audit_queue_size=int(os.getenv("THCHAOS_AUDIT_QUEUE_SIZE", "4096")),
         )
 
     def token_room(self, token: str, role: str) -> str | None:

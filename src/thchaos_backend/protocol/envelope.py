@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 from enum import StrEnum
-from typing import Any, TypeVar
+from typing import Any
 
 from pydantic import Field, ValidationError, model_validator
 
-from .errors import DirectionError, MessageValidationError, UnknownMessageTypeError
+from .errors import DirectionError, ErrorCode, ErrorPayload, MessageTooLargeError, MessageValidationError, UnknownMessageTypeError
 from .payloads import (
     AuthenticatedPayload,
     ClientRole,
@@ -19,8 +19,6 @@ from .payloads import (
     HeartbeatPayload,
     HelloPayload,
     ProtocolInfoPayload,
-    RateLimitPayload,
-    ServerStatePayload,
     VoteAckPayload,
     VoteCastPayload,
     VoteClosedPayload,
@@ -83,9 +81,10 @@ PAYLOAD_MODELS: dict[MessageType, type[ProtocolModel]] = {
     MessageType.VOTE_SNAPSHOT: VoteSnapshotPayload,
     MessageType.VOTE_CLOSED: VoteClosedPayload,
     MessageType.EFFECT_RESOLVED: EffectResolvedPayload,
+    MessageType.ERROR: ErrorPayload,
 }
 
-# error payload 在 errors.py 中定义，避免这里产生循环导入；服务器单独处理 error。
+# ERROR is only valid server-to-client; role validation applies to it too.
 ALLOWED_BY_ROLE: dict[ClientRole, frozenset[MessageType]] = {
     ClientRole.GAME: frozenset(
         {
@@ -145,24 +144,29 @@ def make_envelope(
     )
 
 
-def parse_message(raw: str | bytes, *, role: ClientRole | None = None) -> tuple[Envelope, ProtocolModel | None]:
+def parse_message(raw: str | bytes, *, role: ClientRole | None = None,
+                  max_frame_bytes: int = MAX_FRAME_BYTES) -> tuple[Envelope, ProtocolModel | None]:
     """解析一帧 JSON，并按消息类型验证载荷和发送方向。"""
 
     if isinstance(raw, bytes):
-        if len(raw) > MAX_FRAME_BYTES:
-            raise MessageValidationError("消息超过 16 KiB 限制")
+        if len(raw) > max_frame_bytes:
+            raise MessageTooLargeError("消息超过大小限制")
         try:
             raw = raw.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise MessageValidationError("消息必须是 UTF-8 文本") from exc
-    if len(raw.encode("utf-8")) > MAX_FRAME_BYTES:
-        raise MessageValidationError("消息超过 16 KiB 限制")
+    if len(raw.encode("utf-8")) > max_frame_bytes:
+        raise MessageTooLargeError("消息超过大小限制")
     try:
         data = json.loads(raw)
     except (TypeError, json.JSONDecodeError) as exc:
         raise MessageValidationError("消息不是合法 JSON") from exc
     if not isinstance(data, dict):
         raise MessageValidationError("消息顶层必须是 JSON 对象")
+    if type(data.get("version")) is int and data["version"] != PROTOCOL_VERSION:
+        raise MessageValidationError("协议版本不支持", code=ErrorCode.PROTOCOL_VERSION_UNSUPPORTED)
+    if isinstance(data.get("type"), str) and data["type"] not in MessageType._value2member_map_:
+        raise UnknownMessageTypeError("未知消息类型")
     try:
         # JSON mode is intentional: Pydantic accepts the wire representation of
         # enums (strings) while the strict model still rejects string numbers and
@@ -170,19 +174,21 @@ def parse_message(raw: str | bytes, *, role: ClientRole | None = None) -> tuple[
         # because it is already a Python string rather than an enum instance.
         envelope = Envelope.model_validate_json(raw)
     except ValidationError as exc:
-        raise MessageValidationError("信封字段不合法", details={"validation": str(exc)[:180]}) from exc
-    if envelope.type == MessageType.ERROR:
-        return envelope, None
+        raise _validation_error("信封字段不合法", exc) from exc
+    if role is not None and envelope.type not in allowed_message_types(role):
+        raise DirectionError(f"角色 {role.value} 不允许发送 {envelope.type.value}")
     model = PAYLOAD_MODELS.get(envelope.type)
     if model is None:
         raise UnknownMessageTypeError(f"未知消息类型：{envelope.type}")
     try:
         payload = model.model_validate_json(json.dumps(envelope.payload, ensure_ascii=False))
     except ValidationError as exc:
-        raise MessageValidationError(
-            f"{envelope.type.value} payload 字段不合法",
-            details={"validation": str(exc)[:180]},
-        ) from exc
-    if role is not None and envelope.type not in allowed_message_types(role):
-        raise DirectionError(f"角色 {role.value} 不允许发送 {envelope.type.value}")
+        raise _validation_error(f"{envelope.type.value} payload 字段不合法", exc) from exc
     return envelope, payload
+
+
+def _validation_error(message: str, exc: ValidationError) -> MessageValidationError:
+    # Never echo Pydantic input values: malformed hello may include credentials.
+    unknown = any(item["type"] == "extra_forbidden" for item in exc.errors())
+    return MessageValidationError(message, code=ErrorCode.PROTOCOL_UNKNOWN_FIELD if unknown
+                                  else ErrorCode.PROTOCOL_MALFORMED_MESSAGE)

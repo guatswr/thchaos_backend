@@ -4,9 +4,8 @@
 
 * ``protocol.*``：信封层问题（版本、字段、方向、序号、限流）。
 * ``auth.*``：握手与鉴权。
-* ``round.*``：轮次路由。这一组的拒绝全部发生在服务器，而且**必须**发生在
-  转发之前——服务器永远不替游戏端回答「这票算不算」，只回答「这票还能不能
-  送到游戏端」。
+* ``round.*``：轮次路由。拒绝转发发生在发送之前；``round.result_unknown``
+  则表示无法获知已开始发送的投票结果。服务器不替游戏端判定是否计票。
 * ``server.*``：服务器内部问题。
 
 游戏端自己对投票的判定不复用这里的码：那是 ``VoteAckReason``（见
@@ -60,6 +59,7 @@ class ErrorCode(StrEnum):
     ROUND_GAME_OFFLINE = "round.game_offline"
     ROUND_STALE = "round.stale"
     ROUND_GAME_INSTANCE_MISMATCH = "round.game_instance_mismatch"
+    ROUND_RESULT_UNKNOWN = "round.result_unknown"
 
     # ---- 服务器 ----
     SERVER_INTERNAL_ERROR = "server.internal_error"
@@ -85,6 +85,7 @@ FATAL_ERROR_CODES: frozenset[ErrorCode] = frozenset(
         ErrorCode.PROTOCOL_ORIGIN_MISMATCH,
         ErrorCode.PROTOCOL_SEQ_REGRESSION,
         ErrorCode.PROTOCOL_MESSAGE_TOO_LARGE,
+        ErrorCode.PROTOCOL_NOT_AUTHENTICATED,
         ErrorCode.AUTH_INVALID_TOKEN,
         ErrorCode.AUTH_ROLE_MISMATCH,
         ErrorCode.AUTH_ROOM_NOT_FOUND,
@@ -98,9 +99,8 @@ FATAL_ERROR_CODES: frozenset[ErrorCode] = frozenset(
 class ErrorPayload(ProtocolModel):
     """``error`` 消息的载荷。
 
-    ``room_id`` 无法解析时（例如 ``hello`` 本身格式错误），服务器仍然要能回
-    一条 error，此时信封里的 ``room_id`` 允许为 null——这是信封层唯一允许
-    ``room_id`` 为空的情形，见 ``envelope.py``。
+    无法解析首帧时，服务器使用保留 room_id ``unauthenticated`` 返回错误；
+    该值不授予房间访问权限。错误详情不得包含入站 Token 或其他原始输入。
     """
 
     code: ErrorCode
@@ -160,8 +160,9 @@ class ProtocolError(ValueError):
 class MessageValidationError(ProtocolError):
     """消息结构不合法（字段缺失、类型不对、出现未知字段等）。"""
 
-    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
-        super().__init__(ErrorCode.PROTOCOL_MALFORMED_MESSAGE, message, details=details)
+    def __init__(self, message: str, *, details: dict[str, Any] | None = None,
+                 code: ErrorCode = ErrorCode.PROTOCOL_MALFORMED_MESSAGE) -> None:
+        super().__init__(code, message, details=details)
 
 
 class UnknownMessageTypeError(ProtocolError):

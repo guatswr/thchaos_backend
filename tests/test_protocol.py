@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
+import json
 
 import pytest
 from pydantic import ValidationError
+from thchaos_backend.protocol.errors import ErrorCode, ErrorPayload, ProtocolError
 
 from thchaos_backend.protocol import (
     ClientRole,
@@ -169,3 +171,43 @@ def test_effect_resolved_requires_command_id_and_status():
     )
     assert effect.status == EffectStatus.APPLIED
 
+
+@pytest.mark.parametrize('mutation,code', [
+    ({'version': 2}, ErrorCode.PROTOCOL_VERSION_UNSUPPORTED),
+    ({'type': 'unknown.kind'}, ErrorCode.PROTOCOL_UNKNOWN_MESSAGE_TYPE),
+    ({'unexpected': True}, ErrorCode.PROTOCOL_UNKNOWN_FIELD),
+    ({'seq': '1'}, ErrorCode.PROTOCOL_MALFORMED_MESSAGE),
+])
+def test_parser_returns_precise_error_codes(mutation, code):
+    from thchaos_backend.protocol import HeartbeatPayload
+    raw = make_envelope(MessageType.HEARTBEAT_PING, room_id='main', seq=1,
+                        payload=HeartbeatPayload(nonce='test-ping')).model_dump(mode='json')
+    raw.update(mutation)
+    with pytest.raises(ProtocolError) as result:
+        parse_message(json.dumps(raw))
+    assert result.value.code == code
+
+
+def test_parser_honors_frame_limit_and_rejects_client_error():
+    raw = make_envelope(MessageType.ERROR, room_id='main', seq=1,
+                        payload=ErrorPayload(code=ErrorCode.SERVER_INTERNAL_ERROR, message='test')).model_dump_json()
+    for role in (ClientRole.GAME, ClientRole.BOT):
+        with pytest.raises(ProtocolError) as result:
+            parse_message(raw, role=role)
+        assert result.value.code == ErrorCode.PROTOCOL_DIRECTION_NOT_ALLOWED
+    for frame in (raw, raw.encode()):
+        with pytest.raises(ProtocolError) as result:
+            parse_message(frame, max_frame_bytes=10)
+        assert result.value.code == ErrorCode.PROTOCOL_MESSAGE_TOO_LARGE
+
+
+def test_unknown_payload_fields_do_not_echo_secrets():
+    from thchaos_backend.protocol import HelloPayload
+    raw = make_envelope(MessageType.HELLO, room_id='main', seq=1,
+        payload=HelloPayload(role=ClientRole.BOT, client_id='test', client_version='test-1',
+                             token='secret-value', room_id='main')).model_dump(mode='json')
+    raw['payload']['unexpected'] = 'secret-value'
+    with pytest.raises(ProtocolError) as result:
+        parse_message(json.dumps(raw))
+    assert result.value.code == ErrorCode.PROTOCOL_UNKNOWN_FIELD
+    assert 'secret-value' not in result.value.to_payload().model_dump_json()

@@ -19,6 +19,7 @@ from thchaos_backend.protocol import (
     EffectStatus,
     GamePhase,
     GameStatePayload,
+    GameSyncPayload,
     MessageType,
     StateReason,
     VoteAckPayload,
@@ -78,7 +79,7 @@ async def run(url: str, room: str, token: str) -> None:
             live_run=True,
             reason=StateReason.STAGE_ENTERED,
         )
-        await ws.send(make_message(MessageType.GAME_STATE_CHANGED, state, room=room, instance=instance, seq=seq))
+        await ws.send(make_message(MessageType.GAME_SYNC, GameSyncPayload(state=state), room=room, instance=instance, seq=seq))
         seq += 1
         await asyncio.sleep(0.2)
         options = [

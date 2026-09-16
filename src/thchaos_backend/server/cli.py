@@ -7,7 +7,8 @@ def main() -> None:
     import uvicorn
 
     settings = Settings.from_env()
-    uvicorn.run("thchaos_backend.server.app:app", host=settings.host, port=settings.port, reload=False)
+    uvicorn.run("thchaos_backend.server.app:app", host=settings.host, port=settings.port,
+                reload=False, workers=1, ws_max_size=settings.max_frame_bytes, ws_max_queue=16)
 
 
 if __name__ == "__main__":
