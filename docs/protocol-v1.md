@@ -57,7 +57,7 @@
 
 服务器侧拒绝使用 `protocol.*`、`auth.*`、`round.*` 错误码；它们表示消息不能继续转发。游戏侧的 `vote.ack.reason` 保留游戏引擎语义，如 `wrong_round`、`duplicate`、`full`。
 
-Bot 每连接默认每秒最多提交 30 条 `vote.cast`；超过后收到可重试的 `protocol.rate_limited`，不会断开长连接。可通过 `THCHAOS_MAX_CASTS_PER_SECOND` 调整。
+Bot 每连接默认每秒最多提交 200 条 `vote.cast`；超过后收到可重试的 `protocol.rate_limited`，不会断开长连接。可通过 `THCHAOS_MAX_CASTS_PER_SECOND` 调整。
 
 首帧默认必须在 5 秒内到达。握手的 Token、角色与 URL 路径、信封与载荷的房间和实例必须一致。认证失败会先尝试发送错误，再关闭连接；首帧不可解析时错误信封使用保留房间名 `unauthenticated`，该值不授予权限。未知字段、未知类型、版本不支持和解析层帧超限分别返回对应错误码；底层先拒绝超大帧时可能直接以 WebSocket 1009 关闭。
 

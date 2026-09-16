@@ -45,7 +45,7 @@ class Settings:
     max_frame_bytes: int = 16 * 1024
     max_bots_per_room: int = 8
     admin_token: str = ""
-    max_casts_per_second: int = 30
+    max_casts_per_second: int = 200
     handshake_timeout: float = 5.0
     send_timeout: float = 2.0
     ack_timeout: float = 15.0
@@ -85,7 +85,7 @@ class Settings:
             allow_dev_tokens=allow_dev,
             max_frame_bytes=int(os.getenv("THCHAOS_MAX_FRAME_BYTES", str(16 * 1024))),
             admin_token=os.getenv("THCHAOS_ADMIN_TOKEN", ""),
-            max_casts_per_second=int(os.getenv("THCHAOS_MAX_CASTS_PER_SECOND", "30")),
+            max_casts_per_second=int(os.getenv("THCHAOS_MAX_CASTS_PER_SECOND", "200")),
             handshake_timeout=float(os.getenv("THCHAOS_HANDSHAKE_TIMEOUT", "5")),
             send_timeout=float(os.getenv("THCHAOS_SEND_TIMEOUT", "2")),
             ack_timeout=float(os.getenv("THCHAOS_ACK_TIMEOUT", "15")),

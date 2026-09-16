@@ -35,7 +35,7 @@ QQ 群 ◀── OneBot 反向 WS ── NapCat ◀── AstrBot
 | 房间绑定 | `hello.token` 映射出的房间必须等于 `hello.room_id` | `protocol.origin_mismatch`（致命） |
 | 游戏端数量 | 每个房间同时只允许 1 个游戏端 | `auth.game_already_connected`（致命） |
 | Bot 数量 | 每个房间最多 8 条 Bot 连接（代码常量） | `server.overloaded` |
-| 投票频率 | 每条 Bot 连接默认每秒 30 条 `vote.cast` | `protocol.rate_limited`（可重试，不断连接） |
+| 投票频率 | 每条 Bot 连接默认每秒 200 条 `vote.cast` | `protocol.rate_limited`（可重试，不断连接） |
 
 Bot 只能发送 `vote.cast` 和 `heartbeat.ping`，游戏端消息只能由游戏端发送，方向不符即 `protocol.direction_not_allowed`。只有致命错误（鉴权失败、序号回退、帧超限等）会关闭连接，投票被拒/被限流属于单条消息失败，长连接保留。
 
@@ -72,7 +72,7 @@ curl -H 'X-Admin-Token: <管理Token>' http://127.0.0.1:9961/metrics
 | `THCHAOS_BOT_TOKENS` | 空 | JSON 对象 `{"<BotToken>":"<room_id>"}` |
 | `THCHAOS_ALLOW_DEV_TOKENS` | `0` | 设为 `1` 才启用内置开发 Token（仅本地模拟） |
 | `THCHAOS_ADMIN_TOKEN` | 空 | 为空则不提供 `/rooms/{room_id}/state` 排障接口 |
-| `THCHAOS_MAX_CASTS_PER_SECOND` | `30` | 每条 Bot 连接每秒 `vote.cast` 上限 |
+| `THCHAOS_MAX_CASTS_PER_SECOND` | `200` | 每条 Bot 连接每秒 `vote.cast` 上限 |
 | `THCHAOS_MAX_FRAME_BYTES` | `16384` | 解析层与标准启动入口的 WebSocket 帧大小上限 |
 | `THCHAOS_HANDSHAKE_TIMEOUT` | `5` | 等待首帧 `hello` 的超时秒数 |
 | `THCHAOS_SEND_TIMEOUT` | `2` | 单次网络发送的超时秒数 |
@@ -314,7 +314,7 @@ docker compose down -v           # 危险：连审计库一起删除（投票记
 
 **第二个游戏端连不上。** 一个房间同时只允许一个游戏端，先确认旧的游戏进程已经退出。
 
-**投票被拒但连接没断。** 这是设计如此，逐条对照 `error.payload.code`：`round.not_open`（当前没有开放投票）、`round.stale`（轮次已过期）、`round.duplicate_vote`（同一用户本轮已投过或消息重复）、`round.game_offline`（游戏端未连接）、`protocol.rate_limited`（超过每秒 30 条，可重试）。
+**投票被拒但连接没断。** 这是设计如此，逐条对照 `error.payload.code`：`round.not_open`（当前没有开放投票）、`round.stale`（轮次已过期）、`round.duplicate_vote`（同一用户本轮已投过或消息重复）、`round.game_offline`（游戏端未连接）、`protocol.rate_limited`（超过每秒 200 条，可重试）。
 
 **`/rooms/{room_id}/state` 返回 404。** 没设置 `THCHAOS_ADMIN_TOKEN` 时该接口不存在（有意为之）；设置了则要求请求头 `X-Admin-Token` 完全匹配。
 
