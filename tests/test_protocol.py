@@ -57,6 +57,7 @@ def test_opened_requires_three_ordered_choices():
         remaining_ms=10_000,
     )
     assert [item.choice for item in payload.options] == [1, 2, 3]
+    assert payload.options[0].description == ""  # Legacy game clients.
     with pytest.raises(ValidationError):
         VoteOpenedPayload(
             round_id=1,
@@ -64,6 +65,18 @@ def test_opened_requires_three_ordered_choices():
             vote_duration_ms=10_000,
             remaining_ms=10_000,
         )
+
+
+def test_option_descriptions_roundtrip_and_limits():
+    for model in (VoteOption, VoteCount):
+        fields = option(1).model_dump()
+        if model is VoteCount:
+            fields["votes"] = 0
+        fields["description"] = "普通弹冻结5秒，再以150%速度运动2秒，不含激光。"
+        value = model(**fields)
+        assert model.model_validate_json(value.model_dump_json()).description == fields["description"]
+        with pytest.raises(ValidationError):
+            model(**{**fields, "description": "长" * 513})
 
 
 def test_envelope_rejects_unknown_fields_and_wrong_version():

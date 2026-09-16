@@ -64,7 +64,8 @@ def opened(round_id: int = 1):
     return VoteOpenedPayload(
         round_id=round_id,
         options=[
-            VoteOption(choice=1, event_id=11, event_key="chaos.event_1", name="事件 1"),
+            VoteOption(choice=1, event_id=11, event_key="chaos.event_1", name="事件 1",
+                       description="冻结5秒，再以150%速度运动2秒。"),
             VoteOption(choice=2, event_id=12, event_key="chaos.event_2", name="事件 2"),
             VoteOption(choice=3, event_id=13, event_key="chaos.event_3", name="事件 3"),
         ],
@@ -114,7 +115,15 @@ async def test_game_bot_round_flow(tmp_path: Path, monkeypatch):
             await recv_type(bot, "game.sync")
 
             await game.send(envelope(MessageType.VOTE_OPENED, opened(), seq=2))
-            await recv_type(bot, "vote.opened")
+            announced = await recv_type(bot, "vote.opened")
+            assert announced["payload"]["options"][0]["description"] == opened().options[0].description
+            # A newly connected bot gets descriptions from cached sync, too.
+            async with websockets.connect(f"ws://127.0.0.1:{settings.port}/ws/bot") as resumed_bot:
+                await resumed_bot.send(hello(ClientRole.BOT, "bot-token", "astrbot-resumed", instance=None))
+                await recv_type(resumed_bot, "authenticated")
+                await recv_type(resumed_bot, "protocol.info")
+                synced = await recv_type(resumed_bot, "game.sync")
+                assert synced["payload"]["active_vote"]["options"][0]["description"] == opened().options[0].description
 
             cast_id = new_message_id()
             from thchaos_backend.protocol import VoteCastPayload

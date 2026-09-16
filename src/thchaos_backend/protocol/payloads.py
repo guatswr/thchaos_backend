@@ -149,6 +149,7 @@ class VoteOption(ProtocolModel):
     event_id: EventId
     event_key: EventKey
     name: ShortText
+    description: str = Field(default="", max_length=512)
 
 
 class VoteOpenedPayload(ProtocolModel):
@@ -201,6 +202,7 @@ class VoteCount(ProtocolModel):
     event_id: EventId
     event_key: EventKey
     name: ShortText
+    description: str = Field(default="", max_length=512)
     votes: int = Field(ge=0, le=4_294_967_295)
 
 
